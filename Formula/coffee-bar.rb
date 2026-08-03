@@ -12,6 +12,12 @@ class CoffeeBar < Formula
   sha256 "REPLACE_WITH_RELEASE_TARBALL_SHA256"
   license "Apache-2.0"
 
+  # The only install path that works today. No tag exists yet, so the stable
+  # url above 404s and its sha256 cannot be resolved — GitHub generates the
+  # release tarball FROM the tag. `brew install --HEAD` builds from the branch
+  # instead and needs neither. The stable block stays for when the tag lands.
+  head "https://github.com/ArangoGutierrez/coffee-bar.git", branch: "main"
+
   livecheck do
     url :stable
     strategy :github_latest
