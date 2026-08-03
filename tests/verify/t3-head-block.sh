@@ -1,21 +1,28 @@
 #!/bin/bash
-# t3-head-block.sh — acceptance for "give the tap a working install path today".
+# t3-head-block.sh — acceptance for the tap's TWO install paths: the head block
+# and the tagged stable release.
 #
-# WHY THIS EXISTS. Measured 2026-08-03 against the live tap:
-#   grep -c head Formula/coffee-bar.rb        -> 0
-#   sha256                                    -> "REPLACE_WITH_RELEASE_TARBALL_SHA256"
-#   git ls-remote --tags origin | wc -l       -> 0
-#   curl .../archive/refs/tags/v0.1.0.tar.gz  -> HTTP 404
-# So the tap has NO working install path at all. The stable url 404s because no
-# tag exists, and `brew install --HEAD` fails because no head block exists.
+# WHAT THIS CHECKS TODAY. The formula must keep a head block that names the
+# source repo, must keep the stable url block, and must carry a REAL release
+# digest — 64 lowercase hex that matches the tarball its own url names.
 #
-# A head block is the only fix that works TODAY, because it needs no release.
+# WHY THE DIGEST CHECK IS INVERTED. Before 2026-08-03 the repo had no tag, so
+# `git ls-remote --tags origin` returned nothing and the stable url returned
+# HTTP 404. GitHub generates a release tarball FROM the tag, so the digest could
+# not be resolved and check 4 required the placeholder to STAY. Tag v0.1.0
+# landed on 2026-08-03 and that premise expired. Check 4 now asserts the
+# post-tag invariant: the placeholder must be GONE and the digest must match.
 #
 # EXIT CODES (plan contract): 0 pass, 2 usage error, 3 check failed.
 set -uo pipefail
 
 FORMULA="${1:-Formula/coffee-bar.rb}"
 [ -f "$FORMULA" ] || { echo "usage: $0 [path-to-formula]"; exit 2; }
+
+# Run-scoped, never a fixed basename. A fixed name in a shared directory lets a
+# concurrent run, or an earlier run's leftover, be read back as this run's result.
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/t3-acceptance.XXXXXX") || exit 2
+trap 'rm -rf "$TMP"' EXIT
 
 fail() { echo "FAIL: $*"; exit 3; }
 pass() { echo "PASS: $*"; }
@@ -39,53 +46,86 @@ pass "head block names the coffee-bar source repo"
 
 # ── 3. The stable block must SURVIVE ─────────────────────────────────────────
 # Deleting the stable url to make the formula "work" is the wrong fix. The tag
-# is coming; the stable path must still be there for it.
+# has landed; the stable path is now the DEFAULT install path.
 grep -qE '^[[:space:]]*url[[:space:]]+"https://github\.com/ArangoGutierrez/coffee-bar/archive/refs/tags/' "$FORMULA" \
     || fail "the stable url block was removed or altered"
 pass "stable url block survives"
 
-# ── 4. No FABRICATED sha256 ──────────────────────────────────────────────────
-# The sha256 cannot be resolved before the tag exists: GitHub generates the
-# tarball FROM the tag. Any 64-hex value here today is invented, and would make
-# a future release silently fail its checksum. The placeholder must remain.
-SHA_LINE=$(grep -E '^[[:space:]]*sha256' "$FORMULA" | head -1)
-if echo "$SHA_LINE" | grep -qE '[0-9a-f]{64}'; then
-    fail "sha256 carries a 64-hex value; it cannot be known before the tag exists: $SHA_LINE"
-fi
+# ── 4. The sha256 must be SUBSTITUTED and must MATCH the tarball ─────────────
+# Three separate defects are possible here, so all three are asserted:
+#   a. the placeholder survives, and `brew install` fails on it;
+#   b. the value is not a legal digest — Homebrew rejects uppercase hex, so this
+#      is a case-SENSITIVE check on purpose;
+#   c. the value is a legal digest of the WRONG bytes, which is the defect a
+#      human reviewer cannot see.
+# (c) carries the weight. It compares against the tarball the formula's OWN url
+# names. A guard that compared the formula against a digest hardcoded HERE would
+# only prove the hardcoded constant, and would go stale at the next tag.
 grep -q 'REPLACE_WITH_RELEASE_TARBALL_SHA256' "$FORMULA" \
-    || fail "the sha256 placeholder was removed"
-pass "sha256 placeholder intact, no fabricated digest"
+    && fail "the sha256 placeholder is still present; tag v0.1.0 exists, so substitute the real digest"
+
+SHA_LINE=$(grep -E '^[[:space:]]*sha256' "$FORMULA" | head -1)
+[ -n "$SHA_LINE" ] || fail "the formula declares no sha256 line"
+# Anchored end to end. A 65th character, one uppercase digit, or trailing junk
+# must all fail; a loose search for 64 hex ANYWHERE in the line would pass them.
+SHA_RE='^[[:space:]]*sha256[[:space:]]+"([0-9a-f]{64})"[[:space:]]*$'
+[[ "$SHA_LINE" =~ $SHA_RE ]] \
+    || fail "sha256 is not exactly 64 lowercase hex characters: $SHA_LINE"
+FORMULA_SHA="${BASH_REMATCH[1]}"
+
+URL=$(grep -E '^[[:space:]]*url[[:space:]]+"' "$FORMULA" | head -1 \
+      | sed -n 's/.*url[[:space:]]*"\([^"]*\)".*/\1/p')
+[ -n "$URL" ] || fail "the formula declares no quoted stable url"
+# The url reaches curl, so it is validated before it is used. It must be a
+# coffee-bar release tarball. The TAG inside it is deliberately NOT pinned here:
+# this check must keep working at v0.2.0 without an edit.
+case "$URL" in
+    https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/*) ;;
+    *) fail "the stable url is not a coffee-bar release tarball: $URL" ;;
+esac
+
+# The network is a REQUIRED dependency of this check, not an optional extra. A
+# SKIP on a network failure would hide exactly the defect the check exists to
+# catch. Check 6 of t4-app-install.sh already fails the suite when `git
+# ls-remote` cannot reach this same remote, so the dependency is established.
+curl -fsSL --proto '=https' --max-time 120 "$URL" -o "$TMP/stable.tar.gz"
+CURL_RC=$?
+[ "$CURL_RC" -eq 0 ] || fail "cannot download the stable url; curl exit $CURL_RC for $URL"
+[ -s "$TMP/stable.tar.gz" ] || fail "the stable url returned an empty body: $URL"
+TARBALL_SHA=$(shasum -a 256 "$TMP/stable.tar.gz" | awk '{print $1}')
+[ "$FORMULA_SHA" = "$TARBALL_SHA" ] \
+    || fail "sha256 does not match the tarball at $URL (formula $FORMULA_SHA, tarball $TARBALL_SHA)"
+pass "sha256 is real and matches the tarball the url names ($TARBALL_SHA)"
 
 # ── 5. brew style must not REGRESS ───────────────────────────────────────────
-# A plain `brew style` gate here would be UNSATISFIABLE, and that was measured,
-# not guessed. Check 4 requires the sha256 placeholder to stay. `brew style`
-# rejects any sha256 that is not 64 lowercase hex. So a bare style gate can
-# never pass while the placeholder stands, and a worker would loop forever.
+# The two Checksum cops used to be excluded here. The reason was measured, not
+# guessed: check 4 required the placeholder, and `brew style` rejects any sha256
+# that is not 64 lowercase hex, so a bare style gate could never pass. Check 4
+# now requires the opposite, that reason has expired, and the exclusion is gone.
+# The checksum cops run.
 #
-# The two Checksum cops are therefore excluded while the placeholder stands.
-# The rest of brew style still runs, so a real formula-lint problem is caught.
+# BASELINE, re-measured 2026-08-03 with NO cop exclusions:
+#   formula with the real v0.1.0 digest -> 0 offenses  (the baseline below)
+#   formula with the placeholder        -> 3 offenses  (all three on the sha256
+#     line: FormulaAudit/Checksum twice, FormulaAudit/ChecksumCase once)
+# The count is 0 at a scratch path and at the tap path, so it is not path
+# dependent here. The OLD baseline of 2 named Style/FrozenStringLiteralComment
+# and Style/WordArray. Neither offence occurs any more, so carrying that number
+# forward would have handed the gate two offences of free slack.
 #
-# BASELINE, measured 2026-08-03 with these exclusions:
-#   current formula (no head block) -> 2 offenses
-#     Style/FrozenStringLiteralComment (line 1), Style/WordArray (line 53)
-#   formula with a correct head block -> 1 offense
-#     Style/WordArray
-# Both remaining offences PRE-DATE this task and sit outside owns[]. Requiring
-# a fix for them would be scope creep. The gate therefore asserts the count does
-# not GROW: a worker who introduces a new style problem fails, and a worker who
-# leaves the pre-existing ones alone passes.
-STYLE_BASELINE=2
-EXCEPT_COPS="FormulaAudit/Checksum,FormulaAudit/ChecksumCase"
+# The gate asserts the count does not GROW: a worker who introduces a new style
+# problem fails, and a worker who leaves the file alone passes.
+STYLE_BASELINE=0
 
 if command -v brew >/dev/null 2>&1; then
-    brew style --except-cops "$EXCEPT_COPS" "$FORMULA" >/tmp/t3-brew-style.out 2>&1
+    brew style "$FORMULA" >"$TMP/brew-style.out" 2>&1
     # `brew style` exits non-zero for any offence, so the count is the signal,
     # not the exit code. A file with zero offences prints no "offenses" line.
-    COUNT=$(grep -oE '[0-9]+ offense(s)? detected' /tmp/t3-brew-style.out \
+    COUNT=$(grep -oE '[0-9]+ offense(s)? detected' "$TMP/brew-style.out" \
             | grep -oE '^[0-9]+' | head -1)
     COUNT=${COUNT:-0}
     if [ "$COUNT" -gt "$STYLE_BASELINE" ]; then
-        echo "--- brew style output ---"; cat /tmp/t3-brew-style.out
+        echo "--- brew style output ---"; cat "$TMP/brew-style.out"
         fail "brew style offences grew to $COUNT, above the baseline of $STYLE_BASELINE"
     fi
     pass "brew style did not regress ($COUNT offences, baseline $STYLE_BASELINE)"
