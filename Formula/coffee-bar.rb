@@ -20,15 +20,15 @@ class CoffeeBar < Formula
   desc "Agent-aware macOS wake manager: menu-bar app and capability probe"
   homepage "https://github.com/ArangoGutierrez/coffee-bar"
   url "https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/v0.1.0.tar.gz"
-  # Replace after the tag exists:
+  # Measured 2026-08-04 against the tagged tarball:
   #   curl -sL <the url above> | shasum -a 256
-  sha256 "REPLACE_WITH_RELEASE_TARBALL_SHA256"
+  sha256 "c7a3ed232dc07da5b511c5085c1c864750f15fb13bb10da13927fb7757a0dcf9"
   license "Apache-2.0"
 
-  # The only install path that works today. No tag exists yet, so the stable
-  # url above 404s and its sha256 cannot be resolved — GitHub generates the
-  # release tarball FROM the tag. `brew install --HEAD` builds from the branch
-  # instead and needs neither. The stable block stays for when the tag lands.
+  # v0.1.0 is tagged, so GitHub generates the release tarball and both the url
+  # and the sha256 above resolve. `brew install coffee-bar` builds from that
+  # tarball. The head block below stays for people who would rather track the
+  # branch, and it is the only path that worked before the first tag existed.
   head "https://github.com/ArangoGutierrez/coffee-bar.git", branch: "main"
 
   livecheck do
