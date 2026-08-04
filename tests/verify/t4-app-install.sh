@@ -161,8 +161,30 @@ count_offences() {  # $1 = file
 }
 if command -v brew >/dev/null 2>&1; then
     mkdir -p "$TMP/base/Formula" "$TMP/head/Formula"
-    if git show "HEAD:$FORMULA" > "$TMP/base/Formula/coffee-bar.rb" 2>/dev/null \
-       && [ -s "$TMP/base/Formula/coffee-bar.rb" ]; then
+    # `git show "HEAD:$FORMULA"` resolves its argument against the REPOSITORY
+    # ROOT, so it fails for every ABSOLUTE path. Both acceptance runs for this
+    # task passed an absolute path, so this control SKIPped silently and measured
+    # nothing at all. Resolve against the repository that actually holds the
+    # formula, never against the caller's cwd.
+    # `pwd -P`, never bare `pwd`. The bare builtin returns the LOGICAL path, and
+    # `git rev-parse --show-toplevel` always returns the PHYSICAL one. On macOS
+    # /tmp is a symlink to /private/tmp, so the two disagree for every scratch
+    # repository, the prefix strip below leaves REL absolute, and this control
+    # falls through to the SKIP it was just fixed to avoid. Measured 2026-08-04:
+    #   git --show-toplevel : /private/tmp/<w>/symrepo
+    #   pwd                 : /tmp/<w>/symrepo/Formula        -> strip FAILS
+    #   pwd -P              : /private/tmp/<w>/symrepo/Formula -> strip works
+    FORMULA_ABS="$(cd "$(dirname "$FORMULA")" && pwd -P)/$(basename "$FORMULA")"
+    REPO_ROOT=$(git -C "$(dirname "$FORMULA_ABS")" rev-parse --show-toplevel 2>/dev/null)
+    BASE_OK=no
+    if [ -n "$REPO_ROOT" ]; then
+        REL="${FORMULA_ABS#"$REPO_ROOT"/}"
+        if git -C "$REPO_ROOT" show "HEAD:$REL" > "$TMP/base/Formula/coffee-bar.rb" 2>/dev/null \
+           && [ -s "$TMP/base/Formula/coffee-bar.rb" ]; then
+            BASE_OK=yes
+        fi
+    fi
+    if [ "$BASE_OK" = yes ]; then
         cp "$FORMULA" "$TMP/head/Formula/coffee-bar.rb"
         # The COMMITTED base may still carry the placeholder, which the checksum
         # cops reject with 3 offences. Those belong to the placeholder, not to
@@ -182,7 +204,10 @@ if command -v brew >/dev/null 2>&1; then
         [ "$H" -gt "$B" ] && fail "brew style offences grew from $B to $H"
         pass "brew style did not regress ($B -> $H, measured at one path)"
     else
-        echo "SKIP: cannot read the committed base formula for a style control"
+        # A quiet SKIP reads as a pass. This one is MISSING COVERAGE: say so.
+        echo "SKIP (NO STYLE CONTROL RAN): $FORMULA has no committed version at"
+        echo "     HEAD in any git repository, so there is no base to compare"
+        echo "     against. The style gate did NOT run for this invocation."
     fi
 else
     echo "SKIP: brew not installed; style check not run"

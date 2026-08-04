@@ -104,21 +104,43 @@ pass "sha256 is real and matches the tarball the url names ($TARBALL_SHA)"
 # now requires the opposite, that reason has expired, and the exclusion is gone.
 # The checksum cops run.
 #
-# BASELINE, re-measured 2026-08-03 with NO cop exclusions:
+# BASELINE, re-measured 2026-08-04 with NO cop exclusions, at the NORMALISED
+# path that the check below stages:
 #   formula with the real v0.1.0 digest -> 0 offenses  (the baseline below)
 #   formula with the placeholder        -> 3 offenses  (all three on the sha256
 #     line: FormulaAudit/Checksum twice, FormulaAudit/ChecksumCase once)
-# The count is 0 at a scratch path and at the tap path, so it is not path
-# dependent here. The OLD baseline of 2 named Style/FrozenStringLiteralComment
-# and Style/WordArray. Neither offence occurs any more, so carrying that number
+# The OLD baseline of 2 named Style/FrozenStringLiteralComment and
+# Style/WordArray. Neither offence occurs any more, so carrying that number
 # forward would have handed the gate two offences of free slack.
 #
 # The gate asserts the count does not GROW: a worker who introduces a new style
 # problem fails, and a worker who leaves the file alone passes.
+#
+# THE BASELINE IS ONLY MEANINGFUL AT A NORMALISED PATH. `brew style` applies a
+# different cop set when the file does not sit in a tap layout. Measured
+# 2026-08-04 on BYTE-IDENTICAL content (`cmp` reported no difference):
+#   <tmp>/green-bare.rb                -> 3 offenses  (Sorbet/StrictSigil,
+#                                         Sorbet/TrueSigil, and
+#                                         Style/FrozenStringLiteralComment)
+#   <tmp>/tapdir/Formula/coffee-bar.rb -> 0 offenses
+# So a CORRECT formula failed this gate purely because of where the caller put
+# the file. That is the same defect t4-app-install.sh:149 names: a hardcoded
+# baseline is path-dependent and therefore meaningless. The fix is to normalise
+# the PATH before measuring, so the verdict depends on the CONTENT alone.
 STYLE_BASELINE=0
 
 if command -v brew >/dev/null 2>&1; then
-    brew style "$FORMULA" >"$TMP/brew-style.out" 2>&1
+    # Stage the formula at a tap-shaped path so the cop set never depends on the
+    # caller's argument.
+    mkdir -p "$TMP/style/Formula"
+    STYLE_TARGET="$TMP/style/Formula/coffee-bar.rb"
+    cp "$FORMULA" "$STYLE_TARGET"
+    # A copy that silently did nothing would make this gate vacuous: an absent or
+    # truncated file scores zero offences and would PASS. Prove it landed intact.
+    [ -s "$STYLE_TARGET" ] || fail "could not stage the formula for the style check"
+    cmp -s "$FORMULA" "$STYLE_TARGET" \
+        || fail "the staged style copy differs from $FORMULA"
+    brew style "$STYLE_TARGET" >"$TMP/brew-style.out" 2>&1
     # `brew style` exits non-zero for any offence, so the count is the signal,
     # not the exit code. A file with zero offences prints no "offenses" line.
     COUNT=$(grep -oE '[0-9]+ offense(s)? detected' "$TMP/brew-style.out" \
