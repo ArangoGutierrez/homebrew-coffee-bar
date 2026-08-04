@@ -19,10 +19,22 @@
 class CoffeeBar < Formula
   desc "Agent-aware macOS wake manager: menu-bar app and capability probe"
   homepage "https://github.com/ArangoGutierrez/coffee-bar"
-  url "https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/v0.1.0.tar.gz"
-  # Measured 2026-08-04 against the tagged tarball:
-  #   curl -sL <the url above> | shasum -a 256
-  sha256 "c7a3ed232dc07da5b511c5085c1c864750f15fb13bb10da13927fb7757a0dcf9"
+  url "https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/v0.1.1.tar.gz"
+  # Measured 2026-08-04 against the tagged tarball, 942608 bytes.
+  #
+  # Download to a FILE and check curl's exit code before hashing. Never pipe
+  # curl into shasum: a pipe discards curl's status, so on any failure shasum
+  # hashes empty input and prints the SHA-256 of the empty string
+  # (e3b0c442...7852b855, abbreviated here on purpose so this comment cannot be
+  # mistaken for a digest by a grep) -- a well-formed 64-hex value that looks
+  # entirely legitimate. Verified against a
+  # deliberately bad tag URL on 2026-08-04. `-f` alone is NOT enough: it stops
+  # the 404 body being hashed, and the pipe then hashes nothing instead.
+  #
+  #   curl -fsSL -o /tmp/cb.tar.gz <the url above> || exit 1
+  #   file /tmp/cb.tar.gz        # must report gzip compressed data
+  #   shasum -a 256 /tmp/cb.tar.gz
+  sha256 "0e12cdc1856ec0a789786e9bee57398d39b295ee07b32029c1d95e62d40658a6"
   license "Apache-2.0"
 
   # v0.1.0 is tagged, so GitHub generates the release tarball and both the url
