@@ -19,8 +19,8 @@
 class CoffeeBar < Formula
   desc "Agent-aware macOS wake manager: menu-bar app and capability probe"
   homepage "https://github.com/ArangoGutierrez/coffee-bar"
-  url "https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/v0.2.0.tar.gz"
-  # Measured 2026-08-09 against the tagged tarball, 1421786 bytes.
+  url "https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/v0.2.1.tar.gz"
+  # Measured 2026-08-10 against the tagged tarball, 1463584 bytes.
   #
   # Download to a FILE and check curl's exit code before hashing. Never pipe
   # curl into shasum: a pipe discards curl's status, so on any failure shasum
@@ -34,10 +34,10 @@ class CoffeeBar < Formula
   #   curl -fsSL -o /tmp/cb.tar.gz <the url above> || exit 1
   #   file /tmp/cb.tar.gz        # must report gzip compressed data
   #   shasum -a 256 /tmp/cb.tar.gz
-  sha256 "fc6ec3baa49b8a2d58126a621721544ba25761753530e896b428228ec6e34e08"
+  sha256 "8d83d01c54bb9189e8458004bf04420e45afa0fc5f8c8fe5c31bfa5fd41a36a4"
   license "Apache-2.0"
 
-  # v0.2.0 is tagged, so GitHub generates the release tarball and both the url
+  # v0.2.1 is tagged, so GitHub generates the release tarball and both the url
   # and the sha256 above resolve. `brew install coffee-bar` builds from that
   # tarball. The head block below stays for people who would rather track the
   # branch, and it is the only path that worked before the first tag existed.
