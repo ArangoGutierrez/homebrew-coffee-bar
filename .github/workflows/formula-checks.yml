@@ -1,0 +1,92 @@
+# Copyright 2026 Carlos Eduardo Arango Gutierrez
+# SPDX-License-Identifier: Apache-2.0
+
+# Runs the tap's existing acceptance scripts. The scripts are the checks; this
+# file only makes them run on every change instead of on someone remembering.
+name: formula checks
+
+# `main` is this repository's default branch, confirmed against the GitHub API
+# rather than assumed. The primary clone usually sits on a version-bump branch,
+# so what is checked out locally is not evidence of the default.
+#
+# Push is filtered to the default branch on purpose: every other branch reaches
+# these checks through its pull request, and an unfiltered push trigger would
+# run the same commit twice on a macOS runner.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here writes to the repository. A Homebrew tap is exactly the kind of
+# target where a token with write scope is worth stealing, since whatever it
+# rewrites gets executed on an installing user's machine.
+permissions:
+  contents: read
+
+concurrency:
+  # A tap PR is usually a one-line version bump that gets amended a few times.
+  # Superseded runs would hold a macOS runner for a result nobody reads.
+  group: formula-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    # macOS rather than ubuntu: `brew style` loads Homebrew's own cop set, and
+    # the formula under test is macOS-only (`depends_on macos: :sonoma`). The
+    # runner ships Homebrew and Ruby preinstalled, so there is nothing to
+    # bootstrap. This repository is public, so macOS minutes are not billed.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # WHY THIS STEP EXISTS — it is not ceremony.
+      #
+      # Both verify scripts read the offence count out of `brew style`'s OUTPUT
+      # and default it to zero when no count line is found:
+      #
+      #     COUNT=$(... grep -oE '[0-9]+ offense(s)? detected' ...); COUNT=${COUNT:-0}
+      #
+      # `brew style` shells out to `bundle install`, which needs the network and
+      # the style gem group. When that fails, `brew style` prints a backtrace and
+      # no count line, the count defaults to zero, and the gate PASSES. Measured
+      # 2026-08-15 with rubygems unreachable: `brew style` died inside `bundle
+      # install`, and both scripts reported "0 offences" and exited 0 against a
+      # formula that really did carry one. The gate fails OPEN.
+      #
+      # So this step installs those gems up front and then proves the linter
+      # actually ran, which turns that crash into a red step named for what broke
+      # instead of a silent pass two steps later.
+      #
+      # It deliberately does NOT gate on the offence COUNT. Rubocop's cop set
+      # depends on the file's path — measured at this repo-relative path the same
+      # bytes score 3 offences, at the tap-shaped path t3 stages they score 0 —
+      # so a count taken here would mean nothing. t3 owns the count.
+      - name: Prove brew style can run
+        run: |
+          brew install-bundler-gems --groups=style
+          brew style Formula/coffee-bar.rb > "$RUNNER_TEMP/style-preflight.out" 2>&1 || true
+          cat "$RUNNER_TEMP/style-preflight.out"
+          grep -qE '[0-9]+ files? inspected' "$RUNNER_TEMP/style-preflight.out" || {
+            echo "::error::brew style did not run to completion. The style gate inside"
+            echo "::error::t3 and t4 scores a crashed linter as zero offences, so it"
+            echo "::error::would pass vacuously. Failing here instead."
+            exit 1
+          }
+
+      # Both scripts require the network BY DESIGN: they download the tarball the
+      # formula's own url names and hash it, and they resolve the head branch
+      # against the live remote. Their comments are explicit that a skip on a
+      # network failure would hide the very defect they exist to catch, so a
+      # GitHub outage surfaces here as a red run rather than a green one.
+      #
+      # SIGN_IDENTITY is set nowhere in this file, and no step builds anything:
+      # neither script invokes scripts/build-app.sh, so CI has no path by which
+      # it could sign a bundle. Signing is opt-in (#71a) because auto-detection
+      # made `brew install` sign with the installing user's own key, falsifying
+      # SECURITY.md's promise that a Homebrew bundle is ad-hoc with
+      # TeamIdentifier=not set. Adding a build step here reopens that hole.
+      - name: t3 — head block, stable url, release digest, style
+        run: bash tests/verify/t3-head-block.sh
+
+      - name: t4 — app install, version stamp, head branch, release digest
+        run: bash tests/verify/t4-app-install.sh
