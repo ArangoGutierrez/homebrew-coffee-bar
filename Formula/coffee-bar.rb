@@ -19,7 +19,7 @@
 class CoffeeBar < Formula
   desc "Agent-aware macOS wake manager: menu-bar app and capability probe"
   homepage "https://github.com/ArangoGutierrez/coffee-bar"
-  url "https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/v0.2.2.tar.gz"
+  url "https://github.com/ArangoGutierrez/coffee-bar/archive/refs/tags/v0.3.0.tar.gz"
   # Measured 2026-08-11 against the tagged tarball, 1474865 bytes.
   #
   # Download to a FILE and check curl's exit code before hashing. Never pipe
@@ -34,7 +34,7 @@ class CoffeeBar < Formula
   #   curl -fsSL -o /tmp/cb.tar.gz <the url above> || exit 1
   #   file /tmp/cb.tar.gz        # must report gzip compressed data
   #   shasum -a 256 /tmp/cb.tar.gz
-  sha256 "73fa336b3628608bc87cce97554fa7389fb5ebb98fb432ce9e5210614e9f192d"
+  sha256 "e0e1771d13fb9d6391faa5c731ff16231f1f81e4a89d9a82948d872760a9c2d9"
   license "Apache-2.0"
 
   # v0.2.2 is tagged, so GitHub generates the release tarball and both the url
